@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>MotoMeter SF Ultimate - V2.6 Carbon-Fixed</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+
+        :root {
+            --bg-color: #05080a;
+            --text-color: #00ffff;
+            --needle-main: #ff0055;
+            --btn-bg: rgba(0,255,255,0.05);
+            --orange-z: #ffa500;
+            --nav-color: #ffff00;
+            --nav-widget-bg: rgba(0,0,0,0.5);
+        }
+
+        body.inverted {
+            --bg-color: #dcdcdc;
+            --text-color: #000;
+            --needle-main: #d00;
+            --btn-bg: rgba(0,0,0,0.05);
+            --orange-z: #d47a00;
+            --nav-color: #ff4500;
+            --nav-widget-bg: rgba(255,255,255,0.8);
+        }
+
+        body { 
+            /* カーボンファイバー背景の実装 */
+            background: 
+                linear-gradient(27deg, #151515 5px, transparent 5px) 0 5px,
+                linear-gradient(207deg, #151515 5px, transparent 5px) 10px 0px,
+                linear-gradient(27deg, #222 5px, transparent 5px) 0px 10px,
+                linear-gradient(207deg, #222 5px, transparent 5px) 10px 5px,
+                linear-gradient(90deg, #1b1b1b 10px, transparent 10px),
+                linear-gradient(#1d1d1d 25%, #1a1a1a 25%, #1a1a1a 50%, transparent 50%, transparent 75%, #242424 75%, #242424);
+            background-color: #131313;
+            background-size: 20px 20px;
+            
+            color: var(--text-color); 
+            font-family: 'Orbitron', sans-serif, Arial; text-align: center; 
+            margin: 0; overflow: hidden; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; height: 100vh;
+            touch-action: manipulation;
+        }
+
+        body.inverted {
+            background: #dcdcdc; /* インバート時はシンプルに */
+        }
+
+        #gauge-container { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; width: 100%; }
+        canvas { width: 100vw; max-width: 600px; height: auto; }
+        
+        #digital-display-container { 
+            margin-top: -100px; height: 150px; display: flex; flex-direction: column; 
+            justify-content: center; align-items: center; width: 320px; pointer-events: none;
+        }
+
+        .digital-value { font-weight: 700; line-height: 1.0; white-space: nowrap; letter-spacing: -1px; }
+        #gps-speed-big { font-size: 5.2rem; color: #fff; text-shadow: 0 0 15px rgba(0,255,255,0.3); }
+        body.inverted #gps-speed-big { color: #000; text-shadow: none; }
+        #digital-rpm-small { font-size: 2.6rem; color: var(--text-color); opacity: 0.95; }
+        .unit-label { font-size: 0.8rem; opacity: 0.5; margin-left: 5px; font-weight: 400; }
+
+        #nav-widget {
+            position: absolute; top: env(safe-area-inset-top, 20px); left: 50%; transform: translateX(-50%);
+            z-index: 500; display: none; flex-direction: row; align-items: center; gap: 15px; 
+            background: var(--nav-widget-bg); padding: 8px 20px; border-radius: 15px;
+            border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(5px); pointer-events: none;
+        }
+        
+        #nav-arrow {
+            width: 40px; height: 50px; background-color: var(--nav-color);
+            clip-path: polygon(50% 0%, 0% 100%, 50% 80%, 100% 100%); transform-origin: center center;
+        }
+
+        #nav-dist { font-size: 2.2rem; font-weight: 700; color: var(--nav-color); line-height: 1; }
+
+        #settings-page {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--bg-color); display: none; flex-direction: column;
+            z-index: 2000; overflow-y: auto; padding-bottom: 40px;
+        }
+        
+        #map { width: 90% !important; height: 300px !important; margin: 10px auto; border: 2px solid var(--text-color); border-radius: 8px; background: #222; }
+
+        .controls { position: relative; z-index: 5; margin-top: 20px; }
+        .btn {
+            background: var(--btn-bg); border: 1px solid var(--text-color); color: var(--text-color);
+            padding: 10px 20px; border-radius: 5px; font-family: 'Orbitron', sans-serif; cursor: pointer; margin: 5px;
+        }
+        .btn.active { background: var(--text-color); color: var(--bg-color); }
+
+        .setting-group { margin: 8px; text-align: center; }
+        label { font-size: 0.75rem; opacity: 0.8; display: block; margin-bottom: 4px; font-weight: bold; }
+        select, input { font-family: inherit; font-size: 1.2rem; padding: 8px; background: rgba(0,0,0,0.2); color: var(--text-color); border: 1px solid var(--text-color); text-align: center; width: 240px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+    <div id="nav-widget">
+        <div id="nav-arrow-container"><div id="nav-arrow"></div></div>
+        <div id="nav-dist">0m</div>
+    </div>
+
+    <div id="gauge-container">
+        <canvas id="gaugeCanvas" width="600" height="600"></canvas>
+        <div id="digital-display-container">
+            <div id="digital-rpm-small" class="digital-value">0<span class="unit-label">RPM</span></div>
+            <div id="gps-speed-big" class="digital-value">0<span class="unit-label">km/h</span></div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button id="bleConnectBtn" class="btn">BT Connect</button>
+        <button id="demoBtn" class="btn">Demo</button>
+        <button id="configBtn" class="btn">Settings / Map</button>
+    </div>
+
+    <div id="settings-page">
+        <h2 style="letter-spacing:3px; margin-top: 30px;">SYSTEM SETTINGS</h2>
+        <div style="border: 1px solid var(--text-color); width: 92%; margin: 10px auto; padding: 15px 10px; border-radius: 8px; background: rgba(0,0,0,0.3);">
+            <div id="map"></div>
+            <div class="setting-group" style="display: flex; justify-content: center; gap: 10px;">
+                <input type="number" id="target-lat" step="0.000001" placeholder="Lat" style="width: 110px;">
+                <input type="number" id="target-lon" step="0.000001" placeholder="Lon" style="width: 110px;">
+            </div>
+            <button id="clearNavBtn" class="btn" style="margin-top:10px; border-color:#f00; color:#f00;">CLEAR DESTINATION</button>
+        </div>
+        <div class="setting-group"><label>DARK / LIGHT MODE</label><select id="invert-select"><option value="false">DARK</option><option value="true">LIGHT</option></select></div>
+        <div class="setting-group"><label>PPR (PULSE / REV)</label><select id="ppr-select"><option value="0.5">0.5</option><option value="1.0" selected>1.0</option><option value="2.0">2.0</option></select></div>
+        <div class="setting-group"><label>MAX RPM SCALE</label><select id="range-select"><option value="10000">10,000</option><option value="15000">15,000</option><option value="20000">20,000</option></select></div>
+        <div class="setting-group"><label>RED LINE START</label><input type="number" id="red-line-input" value="9000"></div>
+        <div class="setting-group"><label>SHIFT LIMIT (FLASH)</label><input type="number" id="shift-limit-input" value="9500"></div>
+        <button id="closeConfigBtn" class="btn" style="margin: 20px 0 50px 0; background: var(--text-color); color: var(--bg-color); padding: 15px 80px;">APPLY & SAVE</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gaugeCanvas');
+        const ctx = canvas.getContext('2d');
+        const rpmEl = document.getElementById('digital-rpm-small');
+        const spdEl = document.getElementById('gps-speed-big');
+        const navWidget = document.getElementById('nav-widget');
+        const navArrow = document.getElementById('nav-arrow');
+        const navDist = document.getElementById('nav-dist');
+
+        const CX = 300, CY = 300; 
+
+        let rpm = 0, displayRpm = 0, speedKmH = 0;
+        let ppr = 1.0, currentHeading = 0, displayHeading = 0;
+        let curLat = 0, curLon = 0, targetLat = 0, targetLon = 0;
+        let maxRpm = 10000, redLine = 9000, shiftLimit = 9500, isInverted = false;
+        let isDemo = false;
+        
+        let demoSpeed = 0;
+        let demoPhase = "accel";
+
+        let map = null, marker = null, bluetoothDevice = null, isAutoReconnecting = false, wakeLock = null;
+
+        const requestWakeLock = async () => {
+            try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (err) {}
+        };
+
+        function initMap() {
+            if (map) { setTimeout(() => { map.invalidateSize(); }, 200); return; }
+            map = L.map('map').setView([targetLat || 35.128, targetLon || 138.910], 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+            if (targetLat && targetLon) marker = L.marker([targetLat, targetLon]).addTo(map);
+            map.on('click', (e) => {
+                const lat = e.latlng.lat.toFixed(6), lon = e.latlng.lng.toFixed(6);
+                document.getElementById('target-lat').value = lat;
+                document.getElementById('target-lon').value = lon;
+                if (marker) marker.setLatLng(e.latlng); else marker = L.marker(e.latlng).addTo(map);
+            });
+            setTimeout(() => { map.invalidateSize(); }, 400);
+        }
+
+        function startGPS() {
+            requestWakeLock();
+            if ("geolocation" in navigator) {
+                navigator.geolocation.watchPosition((pos) => {
+                    curLat = pos.coords.latitude; curLon = pos.coords.longitude;
+                    if (!isDemo && pos.coords.speed !== null) speedKmH = pos.coords.speed * 3.6;
+                    if (pos.coords.speed && speedKmH > 5 && pos.coords.heading !== null) currentHeading = pos.coords.heading;
+                }, (err) => { console.error("GPS Error:", err); }, { enableHighAccuracy: true });
+                
+                window.addEventListener("deviceorientation", (e) => {
+                    if (speedKmH <= 5) {
+                        const heading = e.webkitCompassHeading || (360 - e.alpha);
+                        if (heading !== undefined) currentHeading = heading;
+                    }
+                }, true);
+            }
+        }
+
+        async function connectBLE() {
+            try {
+                if (!bluetoothDevice) {
+                    bluetoothDevice = await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: 'Moto' }], optionalServices: ["6e400001-b5a3-f393-e0a9-e50e24dcca9e"] });
+                    bluetoothDevice.addEventListener('gattserverdisconnected', onDisconnected);
+                }
+                await doConnect();
+            } catch (err) { bluetoothDevice = null; }
+        }
+
+        async function doConnect() {
+            if (!bluetoothDevice) return;
+            try {
+                const server = await bluetoothDevice.gatt.connect();
+                const service = await server.getPrimaryService("6e400001-b5a3-f393-e0a9-e50e24dcca9e");
+                const char = await service.getCharacteristic("6e400003-b5a3-f393-e0a9-e50e24dcca9e");
+                await char.startNotifications();
+                char.addEventListener('characteristicvaluechanged', (e) => {
+                    const val = new TextDecoder().decode(e.target.value).trim();
+                    if (val !== "" && !isNaN(val)) rpm = parseInt(val) / (ppr || 1.0);
+                });
+                document.getElementById('bleConnectBtn').innerText = "Connected";
+                isAutoReconnecting = false;
+            } catch (e) { if (isAutoReconnecting) setTimeout(doConnect, 5000); }
+        }
+
+        function onDisconnected() {
+            document.getElementById('bleConnectBtn').innerText = "Reconnecting...";
+            isAutoReconnecting = true;
+            setTimeout(doConnect, 5000);
+        }
+
+        function getBearing(lat1, lon1, lat2, lon2) {
+            const φ1 = lat1 * Math.PI/180, φ2 = lat2 * Math.PI/180, Δλ = (lon2-lon1) * Math.PI/180;
+            return (Math.atan2(Math.sin(Δλ)*Math.cos(φ2), Math.cos(φ1)*Math.sin(φ2)-Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ)) * 180/Math.PI + 360) % 360;
+        }
+
+        function getDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371e3, dφ = (lat2-lat1)*Math.PI/180, dλ = (lon2-lon1)*Math.PI/180;
+            const a = Math.sin(dφ/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dλ/2)**2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+
+        function drawCompass(cx, cy, radius) {
+            const arc = 120 * Math.PI/180;
+            ctx.save(); 
+            ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, radius+40, -Math.PI/2-arc/2, -Math.PI/2+arc/2); ctx.clip();
+            let diff = currentHeading - displayHeading;
+            if (diff > 180) diff -= 360; if (diff < -180) diff += 360;
+            displayHeading += diff * 0.1;
+            for (let i=0; i<360; i+=5) {
+                let rel = i - displayHeading;
+                while (rel > 180) rel -= 360; while (rel < -180) rel += 360;
+                if (Math.abs(rel) > 70) continue;
+                const ang = -Math.PI/2 + (rel * Math.PI/180);
+                ctx.beginPath(); ctx.moveTo(cx+Math.cos(ang)*(radius-8), cy+Math.sin(ang)*(radius-8)); ctx.lineTo(cx+Math.cos(ang)*(radius+8), cy+Math.sin(ang)*(radius+8));
+                ctx.strokeStyle = isInverted ? "#000" : "#0ff"; ctx.lineWidth = (i%90===0)?3:1; ctx.stroke();
+                if (i%45===0) {
+                    ctx.fillStyle = (i%90===0)?(isInverted?"#000":"#fff"):(isInverted?"#333":"#0ff");
+                    ctx.font = (i%90===0)?"bold 18px Orbitron, sans-serif":"bold 13px Orbitron, sans-serif"; ctx.textAlign="center"; ctx.textBaseline="middle";
+                    ctx.fillText({0:"N",45:"NE",90:"E",135:"SE",180:"S",225:"SW",270:"W",315:"NW"}[i], cx+Math.cos(ang)*(radius+28), cy+Math.sin(ang)*(radius+28));
+                }
+            }
+            ctx.restore();
+            ctx.beginPath(); ctx.moveTo(cx, cy-radius+10); ctx.lineTo(cx-8, cy-radius+24); ctx.lineTo(cx+8, cy-radius+24); ctx.fillStyle="#ff0055"; ctx.fill();
+        }
+
+        function runDemo() {
+            if (demoPhase === "accel") {
+                demoSpeed += 0.5;
+                rpm = demoSpeed * 70;
+                if (demoSpeed >= 150) demoPhase = "decel";
+            } else {
+                demoSpeed -= 0.8;
+                rpm = demoSpeed * 70;
+                if (demoSpeed <= 5) demoPhase = "accel";
+            }
+            speedKmH = demoSpeed;
+            currentHeading += speedKmH * 0.005;
+        }
+
+        function draw() {
+            if (isDemo) { runDemo(); }
+
+            if (targetLat !== 0 && curLat !== 0) {
+                navWidget.style.display = "flex";
+                const d = getDistance(curLat, curLon, targetLat, targetLon);
+                navDist.innerText = d >= 1000 ? (d/1000).toFixed(1)+"km" : Math.round(d)+"m";
+                navArrow.style.transform = `rotate(${getBearing(curLat, curLon, targetLat, targetLon) - currentHeading}deg)`;
+            } else {
+                navWidget.style.display = "none";
+            }
+
+            ctx.clearRect(0,0,600,600);
+            drawCompass(CX, CY, 265);
+            const startA=0.75*Math.PI, totalA=1.5*Math.PI, bR=235, bW=55;
+            
+            ctx.beginPath(); ctx.arc(CX, CY, bR, 0.73*Math.PI, 0.27*Math.PI); ctx.strokeStyle=isInverted?"#bbb":"#111"; ctx.lineWidth=bW; ctx.stroke();
+            
+            displayRpm += (rpm - displayRpm) * 0.35; 
+            const ratio = Math.min(displayRpm/maxRpm, 1);
+            if (ratio > 0) {
+                ctx.beginPath(); ctx.arc(CX, CY, bR+bW/2-6, startA, startA+ratio*totalA);
+                ctx.strokeStyle = (displayRpm>=shiftLimit && (Date.now()%100<50))?"#fff":`hsla(${180-ratio*180},100%,50%,0.8)`;
+                ctx.lineWidth=12; ctx.lineCap="round"; ctx.stroke();
+            }
+            
+            ctx.beginPath(); ctx.arc(CX, CY, bR-bW/2, 0.73*Math.PI, 0.27*Math.PI); ctx.strokeStyle=isInverted?"#000":"#0ff"; ctx.lineWidth=2; ctx.stroke();
+            for (let i=0; i<=maxRpm/500; i++) {
+                const a = startA+(i/(maxRpm/500))*totalA;
+                const isOverRed = (i*500>=redLine);
+                ctx.beginPath(); ctx.moveTo(CX+Math.cos(a)*(bR-bW/2-8), CY+Math.sin(a)*(bR-bW/2-8)); ctx.lineTo(CX+Math.cos(a)*(bR-bW/2-20), CY+Math.sin(a)*(bR-bW/2-20));
+                ctx.strokeStyle = isOverRed?"#f00":(isInverted?"#000":"#0ff"); ctx.lineWidth=(i%2===0)?4:2; ctx.stroke();
+                if (i%2===0) { ctx.fillStyle=isOverRed?"#f00":(isInverted?"#000":"#fff"); ctx.font="bold 34px Orbitron, sans-serif"; ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(i/2, CX+Math.cos(a)*(bR-8), CY+Math.sin(a)*(bR-8)); }
+            }
+
+            // 針
+            const needleAngle = startA + (Math.min(displayRpm, maxRpm) / maxRpm) * totalA;
+            ctx.save(); ctx.translate(CX, CY); ctx.rotate(needleAngle);
+            ctx.beginPath(); ctx.moveTo(-35, -7); ctx.lineTo(240, -1.5); ctx.lineTo(240, 1.5); ctx.lineTo(-35, 7); ctx.closePath(); ctx.fillStyle = "#ff0055"; ctx.fill();
+            ctx.restore();
+
+            // センターハブ（メカニカルデザイン）
+            ctx.beginPath(); ctx.arc(CX, CY, 42, 0, Math.PI * 2); ctx.fillStyle = isInverted ? "#999" : "#1a1a1a"; ctx.fill();
+            ctx.strokeStyle = "#333"; ctx.lineWidth = 2; ctx.stroke();
+            ctx.beginPath(); ctx.arc(CX, CY, 38, 0, Math.PI * 2); ctx.strokeStyle = "rgba(255,255,255,0.05)"; ctx.lineWidth = 1; ctx.stroke();
+            ctx.beginPath(); ctx.arc(CX, CY, 6, 0, Math.PI * 2); ctx.fillStyle = "#333"; ctx.fill();
+
+            rpmEl.innerHTML = Math.round(displayRpm)+'<span class="unit-label">RPM</span>';
+            spdEl.innerHTML = Math.round(speedKmH)+'<span class="unit-label">km/h</span>';
+            requestAnimationFrame(draw);
+        }
+
+        function loadSettings() {
+            targetLat = parseFloat(localStorage.getItem('motoNavLat')||0); targetLon = parseFloat(localStorage.getItem('motoNavLon')||0);
+            ppr = parseFloat(localStorage.getItem('motoMeterPPR')||1.0); maxRpm = parseInt(localStorage.getItem('motoMeterRange')||10000);
+            redLine = parseInt(localStorage.getItem('motoMeterRedLine')||9000); shiftLimit = parseInt(localStorage.getItem('motoMeterShiftLimit')||9500);
+            isInverted = localStorage.getItem('motoMeterInvert')==="true";
+            if (isInverted) document.body.className = "inverted";
+
+            document.getElementById('target-lat').value = localStorage.getItem('motoNavLat')||"";
+            document.getElementById('target-lon').value = localStorage.getItem('motoNavLon')||"";
+            document.getElementById('invert-select').value = localStorage.getItem('motoMeterInvert')||"false";
+            document.getElementById('ppr-select').value = ppr;
+            document.getElementById('range-select').value = maxRpm;
+            document.getElementById('red-line-input').value = redLine;
+            document.getElementById('shift-limit-input').value = shiftLimit;
+        }
+
+        document.getElementById('configBtn').onclick = () => { document.getElementById('settings-page').style.display='flex'; initMap(); };
+        document.getElementById('closeConfigBtn').onclick = () => {
+            localStorage.setItem('motoNavLat', document.getElementById('target-lat').value); localStorage.setItem('motoNavLon', document.getElementById('target-lon').value);
+            localStorage.setItem('motoMeterInvert', document.getElementById('invert-select').value); localStorage.setItem('motoMeterRange', document.getElementById('range-select').value);
+            localStorage.setItem('motoMeterRedLine', document.getElementById('red-line-input').value); localStorage.setItem('motoMeterShiftLimit', document.getElementById('shift-limit-input').value);
+            localStorage.setItem('motoMeterPPR', document.getElementById('ppr-select').value); location.reload(); 
+        };
+        
+        document.getElementById('bleConnectBtn').onclick = connectBLE;
+        document.getElementById('demoBtn').onclick = (e) => { isDemo = !isDemo; e.target.classList.toggle('active'); };
+        document.getElementById('clearNavBtn').onclick = () => {
+            document.getElementById('target-lat').value = ""; document.getElementById('target-lon').value = "";
+            if (marker) map.removeLayer(marker); marker = null; targetLat = 0; targetLon = 0;
+        };
+
+        window.onload = () => {
+            loadSettings();
+            startGPS(); 
+            requestAnimationFrame(draw);
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "short_name": "MotoMeter SF",
+  "name": "MotoMeter SF Carbon-Fixed V2.6",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "index.html",
+  "display": "standalone",
+  "theme_color": "#05080a",
+  "background_color": "#131313"
+}
